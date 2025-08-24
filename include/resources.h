@@ -20,12 +20,13 @@
 /* ===========================================================
  * Limites globais (ajuste conforme necessário)
  * =========================================================== */
-#define MAX_P 1024   /* número máximo de processos suportados */
-#define MAX_R   32   /* número máximo de tipos de recurso     */
-
+#define MAX_REQS 64     /* número máximo de requisições por processo */
+#define MAX_P 1024      /* número máximo de processos suportados */
+#define MAX_R   32      /* número máximo de tipos de recurso     */
 /* Validações de compilação (evita valores inválidos) */
 _Static_assert(MAX_P > 0, "MAX_P deve ser > 0");
 _Static_assert(MAX_R > 0, "MAX_R deve ser > 0");
+_Static_assert(MAX_REQS > 0, "MAX_REQS deve ser > 0");
 
 /* ===========================================================
  * Apelidos de inteiros (qualidade de vida)

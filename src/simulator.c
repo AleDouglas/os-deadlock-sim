@@ -4,6 +4,7 @@
  */
 #include <assert.h>
 #include "simulator.h"
+#include "process.h"
 
 /*
  * sim_init
@@ -18,7 +19,7 @@ void sim_init(System *s, int n, int m, Mode mode) {
 
     metrics_reset(&s->metrics);
 
-    for (int j = 0; j < MAX_R-1; j++) {
+    for (int j = 0; j < MAX_R; j++) {
         s->Available[j] = 0;
     }
 
@@ -37,7 +38,7 @@ void sim_reset(System *s) {
     s->sim_clock = 0;
 
     metrics_reset(&s->metrics);
-    for (int j = 0; j < MAX_R-1; j++) {
+    for (int j = 0; j < MAX_R; j++) {
         s->Available[j] = 0;
     }
 
@@ -64,14 +65,23 @@ bool sys_invariants_ok(const System *s){
     if (s->m < 1 || s->m > MAX_R) return false;
 
     // Available não-negativo
-    for(int j = 0; j < MAX_R-1; j++) {
+    for (int j = 0; j < s->m; j++) {
         if (s->Available[j] < 0) return false;
     }
+
+    for (int j = s->m; j < MAX_R; j++) {
+        if (s->Available[j] != 0) return false;
+    }
     
-    // processos 0..n-1 devem ser coerentes
-    for(int i = 0; i < s->n; i++) {
-        Process p = s->procs[i];
-        if (!proc_invariants_ok(&p)) return false;
+    // checar processos:
+    for (int i = 0; i < s->n; i++) {
+        if (!proc_invariants_ok(&s->procs[i])) return false;
+        // (opcional) garantir zeros fora de m
+        for (int j = s->m; j < MAX_R; j++) {
+            if (s->procs[i].Max[j] != 0) return false;
+            if (s->procs[i].Allocation[j] != 0) return false;
+            if (s->procs[i].Need[j] != 0) return false;
+        }
     }
 
     return true;
@@ -105,6 +115,7 @@ void sys_load_from_arrays(System *s,
     for (int j = 0; j < s->m; ++j) {
         s->Available[j] = (available0 ? available0[j] : 0);
     }
+
     for (int j = s->m; j < MAX_R; ++j) {
         s->Available[j] = 0;
     }
@@ -143,8 +154,61 @@ void sys_load_from_arrays(System *s,
            s->procs[i].state = P_FINISHED; */
     }
 
-    /* Neste ponto, se já tiver implementado sys_invariants_ok,
-       você pode ativar a asserção abaixo:
-       assert(sys_invariants_ok(s) && "invariantes globais violadas apos load");
-    */
+    assert(sys_invariants_ok(s) && "invariantes globais violadas apos load");
+}
+
+
+bool handle_request_current_mode(System *S, Process *P, const int req[MAX_R]);
+void release_all_resources(System *S, Process *P);
+void enqueue_ready(int pid);
+void enqueue_blocked(int pid);
+int  blocked_count(void);
+
+/*
+ * Processa um processo por um "passo" de simulação.
+ * Retorna true se o processo TERMINOU neste passo.
+ */
+bool sim_step_handle_process(System *S, Process *p) {
+    int req[MAX_R] = {0};
+
+    /* 1) Sem roteiro → termina e libera tudo */
+    if (p->script == NULL || reqlist_empty(p->script)) {
+        release_all_resources(S, p);
+        p->state = P_FINISHED;
+        return true;
+    }
+
+    /* 2) Lê a próxima requisição sem consumir */
+    if (!reqlist_peek(p->script, req)) {
+        /* Roteiro inconsistente: trate como fim */
+        release_all_resources(S, p);
+        p->state = P_FINISHED;
+        return true;
+    }
+
+    /* 3) Pede concessão conforme o modo atual (Ostrich/Banker) */
+    bool granted = handle_request_current_mode(S, p, req);
+
+    if (granted) {
+        /* 4a) Avança o roteiro */
+        (void)reqlist_pop(p->script);
+
+        /* 4b) Se acabou o roteiro, termina liberando tudo */
+        if (reqlist_empty(p->script)) {
+            release_all_resources(S, p);
+            p->state = P_FINISHED;
+            return true;
+        }
+
+        /* 4c) Ainda tem requisições → volta para READY */
+        p->state = P_READY;
+        enqueue_ready(p->id);
+        return false;
+    } else {
+        /* 4d) Não concedido → vai para BLOCKED */
+        p->state = P_BLOCKED;
+        enqueue_blocked(p->id);
+        (void)blocked_count();  /* útil para métricas/log, se quiser */
+        return false;
+    }
 }

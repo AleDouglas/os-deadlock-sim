@@ -1,10 +1,13 @@
 /* ---------------------------------------------------------------------
  * src/main.c
- * Teste do sys_load_from_arrays com um cenário tiny em memória.
+ * Teste integrado: System + ReqList + sys_load_from_arrays + sim_step.
  * --------------------------------------------------------------------- */
 #include <stdio.h>
 #include "simulator.h"
-#include "process.h"   /* para proc_invariants_ok */
+#include "process.h"   /* ReqList, reqlist_* e Process */
+
+/* sim_step_handle_process foi definido em simulator.c; declara aqui para usar */
+extern bool sim_step_handle_process(System *S, Process *p);
 
 static const char* mode_str(Mode m) {
     return (m == MODE_BANKER) ? "BANKER" : "OSTRICH";
@@ -26,19 +29,38 @@ static void print_vec(const char *label, const int *v, int m) {
     }
     printf("]\n");
 }
+static void print_proc(const System *S, const Process *p) {
+    printf("P%d state=%s\n", p->id, pstate_str(p->state));
+    print_vec("  Max       ", p->Max, S->m);
+    print_vec("  Allocation", p->Allocation, S->m);
+    print_vec("  Need      ", p->Need, S->m);
+}
 
 int main(void) {
-    /* 1) Inicializa o sistema vazio: 2 processos, 2 tipos de recurso, modo OSTRICH */
-    System s;
-    sim_init(&s, 2, 2, MODE_OSTRICH);
+    /* 1) Inicializa o sistema: 2 processos, 2 recursos, modo OSTRICH */
+    System S;
+    sim_init(&S, 2, 2, MODE_OSTRICH);
     printf("[init] n=%d m=%d mode=%s clock=%llu\n",
-           s.n, s.m, mode_str(s.mode), (unsigned long long)s.sim_clock);
+           S.n, S.m, mode_str(S.mode), (unsigned long long)S.sim_clock);
 
-    /* 2) Define um cenário tiny em memória */
-    int A[MAX_R] = {3, 3}; /* Available inicial (restante zera) */
+    /* 2) Cria ReqList para cada processo e adiciona requisições */
+    ReqList r0, r1;
+    reqlist_init(&r0);
+    reqlist_init(&r1);
 
-    /* Max e Allocation por processo (somente posições 0..m-1 são usadas) */
-    int Maxs[MAX_P][MAX_R] = {0};   /* zera tudo */
+    /* m = S.m; preenche só até m-1; o resto fica zero */
+    int req0a[MAX_R] = {1, 0};   /* P0 pede 1 do R0 */
+    int req0b[MAX_R] = {2, 1};   /* depois 2 do R0 e 1 do R1 */
+    int req1a[MAX_R] = {0, 2};   /* P1 pede 2 do R1 */
+
+    (void)reqlist_push(&r0, req0a, S.m);
+    (void)reqlist_push(&r0, req0b, S.m);
+    (void)reqlist_push(&r1, req1a, S.m);
+
+    /* 3) Define um cenário tiny em memória */
+    int A[MAX_R] = {3, 3}; /* Available inicial */
+
+    int Maxs[MAX_P][MAX_R] = {0};
     int Alls[MAX_P][MAX_R] = {0};
     /* P0 */
     Maxs[0][0] = 7; Maxs[0][1] = 5;
@@ -47,27 +69,47 @@ int main(void) {
     Maxs[1][0] = 3; Maxs[1][1] = 2;
     Alls[1][0] = 2; Alls[1][1] = 0;
 
-    /* scripts ainda não usados (NULL) */
-    struct ReqList *Scripts[MAX_P] = { NULL };
+    struct ReqList *Scripts[MAX_P] = { &r0, &r1 };
 
-    /* 3) Carrega no sistema */
-    sys_load_from_arrays(&s, A, Maxs, Alls, Scripts);
+    /* 4) Carrega no sistema e checa invariantes */
+    sys_load_from_arrays(&S, A, Maxs, Alls, Scripts);
 
-    /* 4) Imprime um resumo do estado carregado */
     puts("\n=== ESTADO APÓS LOAD ===");
-    print_vec("Available", s.Available, s.m);
-
-    for (int i = 0; i < s.n; ++i) {
-        Process *p = &s.procs[i];
-        printf("P%d state=%s\n", p->id, pstate_str(p->state));
-        print_vec("  Max       ", p->Max, s.m);
-        print_vec("  Allocation", p->Allocation, s.m);
-        print_vec("  Need      ", p->Need, s.m);
-        printf("  invariants: %s\n", proc_invariants_ok(p) ? "OK" : "FAIL");
+    print_vec("Available", S.Available, S.m);
+    for (int i = 0; i < S.n; ++i) {
+        print_proc(&S, &S.procs[i]);
+        printf("  reqlist_count=%d empty=%s\n",
+               reqlist_count(S.procs[i].script),
+               reqlist_empty(S.procs[i].script) ? "yes" : "no");
     }
 
-    /* 5) Finaliza */
-    sim_finalize(&s);
+    printf("\ninvariants: %s\n", sys_invariants_ok(&S) ? "OK" : "FAIL");
+
+    /* 5) Executa alguns “passos” (com o stub atual, deve bloquear) */
+    puts("\n=== PASSOS DE SIMULAÇÃO (stub dispatcher) ===");
+    for (int step = 0; step < 2; ++step) {
+        printf("\n[step %d] clock=%llu\n", step, (unsigned long long)S.sim_clock);
+        for (int i = 0; i < S.n; ++i) {
+            Process *p = &S.procs[i];
+            if (p->state == P_READY) {
+                bool finished = sim_step_handle_process(&S, p);
+                printf("  P%d -> state=%s finished=%s\n",
+                       p->id, pstate_str(p->state), finished ? "yes" : "no");
+            } else {
+                printf("  P%d (state=%s) — skip\n", p->id, pstate_str(p->state));
+            }
+        }
+        S.sim_clock += 1;
+        print_vec("Available", S.Available, S.m);
+    }
+
+    puts("\n=== ESTADO FINAL (após passos) ===");
+    for (int i = 0; i < S.n; ++i) {
+        print_proc(&S, &S.procs[i]);
+    }
+
+    /* 6) Finaliza */
+    sim_finalize(&S);
     puts("\n[finalize] ok");
     return 0;
 }
