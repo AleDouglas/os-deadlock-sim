@@ -74,6 +74,8 @@ int main(void) {
     /* 4) Carrega no sistema e checa invariantes */
     sys_load_from_arrays(&S, A, Maxs, Alls, Scripts);
 
+
+
     puts("\n=== ESTADO APÓS LOAD ===");
     print_vec("Available", S.Available, S.m);
     for (int i = 0; i < S.n; ++i) {
@@ -86,22 +88,9 @@ int main(void) {
     printf("\ninvariants: %s\n", sys_invariants_ok(&S) ? "OK" : "FAIL");
 
     /* 5) Executa alguns “passos” (com o stub atual, deve bloquear) */
-    puts("\n=== PASSOS DE SIMULAÇÃO (stub dispatcher) ===");
-    for (int step = 0; step < 2; ++step) {
-        printf("\n[step %d] clock=%llu\n", step, (unsigned long long)S.sim_clock);
-        for (int i = 0; i < S.n; ++i) {
-            Process *p = &S.procs[i];
-            if (p->state == P_READY) {
-                bool finished = sim_step_handle_process(&S, p);
-                printf("  P%d -> state=%s finished=%s\n",
-                       p->id, pstate_str(p->state), finished ? "yes" : "no");
-            } else {
-                printf("  P%d (state=%s) — skip\n", p->id, pstate_str(p->state));
-            }
-        }
-        S.sim_clock += 1;
-        print_vec("Available", S.Available, S.m);
-    }
+
+    printf("\n=== RODANDO sim_run ===\n");
+    sim_run(&S);
 
     puts("\n=== ESTADO FINAL (após passos) ===");
     for (int i = 0; i < S.n; ++i) {

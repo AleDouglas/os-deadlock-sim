@@ -1,6 +1,6 @@
 CC      = gcc
 CFLAGS  = -std=c11 -Wall -Wextra -O2 -Iinclude
-SRCS    = src/main.c src/process.c src/simulator.c src/stubs.c
+SRCS    = src/main.c src/process.c src/simulator.c src/stubs.c src/ostrich.c
 BIN     = os-deadlock-sim
 
 all: $(BIN)

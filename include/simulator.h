@@ -41,6 +41,7 @@ void sys_load_from_arrays(System *s,
                           const int maxs[MAX_P][MAX_R],
                           const int allocs[MAX_P][MAX_R],
                           struct ReqList *scripts[MAX_P]);
+void sim_run(System *s);
 
 #ifdef __cplusplus
 } /* extern "C" */

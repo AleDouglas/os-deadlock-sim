@@ -158,6 +158,16 @@ void sys_load_from_arrays(System *s,
 }
 
 
+/* Liberação simplificada (essa já é útil de verdade) */
+void release_all_resources(System *S, Process *P) {
+    if (!S || !P) return;
+    for (int j = 0; j < S->m; ++j) {
+        S->Available[j] += P->Allocation[j];
+        P->Allocation[j] = 0;
+        P->Need[j]       = 0;   /* ou: recompute depois com proc_compute_need(P) */
+    }
+}
+
 bool handle_request_current_mode(System *S, Process *P, const int req[MAX_R]);
 void release_all_resources(System *S, Process *P);
 void enqueue_ready(int pid);
@@ -210,5 +220,105 @@ bool sim_step_handle_process(System *S, Process *p) {
         enqueue_blocked(p->id);
         (void)blocked_count();  /* útil para métricas/log, se quiser */
         return false;
+    }
+}
+
+/* ------------------------------------------------------------- */
+/* Varre todos os processos BLOQUEADOS e tenta a MESMA req de novo.
+ * Retorna true se pelo menos um processo mudou de estado (desbloqueou
+ * ou terminou).
+ * ------------------------------------------------------------- */
+static bool sweep_blocked(System *S) {
+    bool progress = false;
+    int  req[MAX_R];
+
+    for (int i = 0; i < S->n; ++i) {
+        Process *p = &S->procs[i];
+        if (p->state != P_BLOCKED) continue;
+
+        /* Se não há roteiro, finalize por segurança */
+        if (p->script == NULL || reqlist_empty(p->script)) {
+            release_all_resources(S, p);
+            p->state = P_FINISHED;
+            progress = true;
+            continue;
+        }
+
+        /* Tenta novamente a requisição atual */
+        if (!reqlist_peek(p->script, req)) {
+            /* Roteiro inconsistente → finalize */
+            release_all_resources(S, p);
+            p->state = P_FINISHED;
+            progress = true;
+            continue;
+        }
+
+        bool granted = handle_request_current_mode(S, p, req);
+        if (granted) {
+            (void)reqlist_pop(p->script);
+
+            if (reqlist_empty(p->script)) {
+                release_all_resources(S, p);
+                p->state = P_FINISHED;
+            } else {
+                p->state = P_READY;
+            }
+            progress = true;
+        }
+        /* senão, continua BLOQUEADO */
+    }
+
+    return progress;
+}
+
+/* ------------------------------------------------------------- */
+/* Retorna true se TODOS os processos 0..n-1 estão FINISHED      */
+/* ------------------------------------------------------------- */
+static bool all_finished(const System *S) {
+    for (int i = 0; i < S->n; ++i) {
+        if (S->procs[i].state != P_FINISHED) return false;
+    }
+    return true;
+}
+
+/* ------------------------------------------------------------- */
+/* Loop de simulação mínimo (sem filas): varre READY, tenta passos,
+ * tenta desbloquear bloqueados e avança o relógio.
+ * Para evitar loop infinito quando nada muda (tudo bloqueado),
+ * paramos se não houver progresso em uma rodada completa.
+ * ------------------------------------------------------------- */
+void sim_run(System *S) {
+    if (!S) return;
+
+    while (!all_finished(S)) {
+        bool progress = false;
+
+        /* 1) Passo nos processos READY */
+        for (int i = 0; i < S->n; ++i) {
+            Process *p = &S->procs[i];
+            if (p->state != P_READY) continue;
+
+            /* Snapshot do estado antes */
+            PState before = p->state;
+
+            /* sim_step_handle_process deve estar no seu simulator.c */
+            extern bool sim_step_handle_process(System *S, Process *p);
+            bool finished_now = sim_step_handle_process(S, p);
+
+            if (finished_now || p->state != before) {
+                progress = true;
+            }
+        }
+
+        /* 2) Tentar desbloquear bloqueados */
+        if (sweep_blocked(S)) {
+            progress = true;
+        }
+
+        /* 3) Avança o relógio lógico */
+        S->sim_clock += 1;
+
+        /* 4) Se não houve progresso na rodada, paramos (evita loop infinito) */
+        if (!progress) break;
     }
 }
