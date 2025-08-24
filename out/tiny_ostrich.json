@@ -1,0 +1,12 @@
+{
+  "mode": "OSTRICH",
+  "n": 2,
+  "m": 2,
+  "total_requests": 3,
+  "grants": 3,
+  "blocks": 0,
+  "banker_safety_calls": 0,
+  "ns_in_safety_total": 0,
+  "deadlocks_found": 0,
+  "time_to_first_deadlock": 0
+}

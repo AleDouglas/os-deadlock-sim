@@ -1,0 +1,4 @@
+clock,pid,mode,granted,req0,req1,avail0,avail1
+0,0,BANKER,1,1,0,2,3
+0,1,BANKER,1,0,2,2,1
+1,0,BANKER,1,2,1,2,2
