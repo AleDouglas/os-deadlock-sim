@@ -1,13 +1,13 @@
-1) Tiny no BANQUEIRO (mede overhead)
-./os-deadlock-sim --mode banker --scenario tiny --log tiny_banker.csv --metrics tiny_banker.json
+### Tiny no BANQUEIRO (mede overhead)
+`./os-deadlock-sim --mode banker --scenario tiny --log tiny_banker.csv --metrics tiny_banker.json`
 
 
-2) Deadlock clássico no OSTRICH (detector liga)
-./os-deadlock-sim --mode ostrich --scenario deadlock --log deadlock_ostrich.csv --metrics deadlock_ostrich.json
+### Deadlock clássico no OSTRICH (detector liga)
+`./os-deadlock-sim --mode ostrich --scenario deadlock --log deadlock_ostrich.csv --metrics deadlock_ostrich.json`
 
 
-3) Deadlock clássico no BANQUEIRO (evita deadlock)
-./os-deadlock-sim --mode banker --scenario deadlock --log deadlock_banker.csv --metrics deadlock_banker.json
+### Deadlock clássico no BANQUEIRO (evita deadlock)
+`./os-deadlock-sim --mode banker --scenario deadlock --log deadlock_banker.csv --metrics deadlock_banker.json`
 
 
 Se algo fugir muito do esperado, cheque:
@@ -16,7 +16,8 @@ Se algo fugir muito do esperado, cheque:
 
 
 
-4) Usando experiments.sh para gerar tabela
+### Usando experiments.sh para gerar tabela
+
 chmod +x experiments.sh
 ./experiments.sh
 column -t -s$'\t' out/summary.tsv
