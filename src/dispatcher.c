@@ -10,6 +10,7 @@
 #include "simulator.h"
 #include "process.h"
 #include "banker.h"
+#include "logger.h"
 
 static inline unsigned long long now_ns(void) {
     struct timespec ts;
@@ -30,11 +31,12 @@ bool handle_request_current_mode(System *S, Process *P, const int req[MAX_R]) {
 
     /* ---------- BANKER ---------- */
     if (S->mode == MODE_BANKER) {
-        /* Pré-checagem rápida para contar safety só quando fará sentido */
+        /* pré-checagem: só mede safety se possível prosseguir */
         for (int j = 0; j < S->m; ++j) {
             int r = req[j];
             if (r < 0 || r > P->Need[j] || r > S->Available[j]) {
                 S->metrics.blocks++;
+                logger_log_request(S, P, req, false);
                 return false;
             }
         }
@@ -45,6 +47,7 @@ bool handle_request_current_mode(System *S, Process *P, const int req[MAX_R]) {
         S->metrics.banker_safety_calls++;
         S->metrics.ns_in_safety_total += dt;
         if (ok) S->metrics.grants++; else S->metrics.blocks++;
+        logger_log_request(S, P, req, ok);
         return ok;
     }
 
@@ -53,6 +56,7 @@ bool handle_request_current_mode(System *S, Process *P, const int req[MAX_R]) {
         int r = req[j];
         if (r < 0 || r > P->Need[j] || r > S->Available[j]) {
             S->metrics.blocks++;
+            logger_log_request(S, P, req, false);
             return false;
         }
     }
@@ -63,5 +67,6 @@ bool handle_request_current_mode(System *S, Process *P, const int req[MAX_R]) {
         P->Need[j]       -= r;
     }
     S->metrics.grants++;
+    logger_log_request(S, P, req, true);
     return true;
 }

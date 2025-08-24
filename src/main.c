@@ -1,43 +1,15 @@
 /* ---------------------------------------------------------------------
- * src/main.c — Comparação Ostrich vs Banker (TINY e DEADLOCK)
+ * main.c — CLI simples: roda cenários e gera logs/metrics
  * --------------------------------------------------------------------- */
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <getopt.h>
 #include "simulator.h"
 #include "process.h"
-#include "banker.h"
+#include "logger.h"
 
-static const char* mode_str(Mode m) { return m==MODE_BANKER ? "BANKER" : "OSTRICH"; }
-static void print_vec(const char *label, const int *v, int m) {
-    printf("%s=[", label); for (int j=0;j<m;++j) printf("%d%s", v[j], (j+1<m)?",":""); puts("]");
-}
-static void print_proc(const System *S, const Process *p) {
-    printf("P%d state=FINISHED? %s\n", p->id, (p->state==P_FINISHED?"yes":"no"));
-    print_vec("  Max       ", p->Max, S->m);
-    print_vec("  Allocation", p->Allocation, S->m);
-    print_vec("  Need      ", p->Need, S->m);
-}
-static void print_metrics(const System *S) {
-    printf("  total_requests=%llu, grants=%llu, blocks=%llu\n",
-           (unsigned long long)S->metrics.total_requests,
-           (unsigned long long)S->metrics.grants,
-           (unsigned long long)S->metrics.blocks);
-    if (S->mode == MODE_BANKER) {
-        printf("  banker_safety_calls=%llu, ns_in_safety_total=%llu",
-               (unsigned long long)S->metrics.banker_safety_calls,
-               (unsigned long long)S->metrics.ns_in_safety_total);
-        if (S->metrics.banker_safety_calls) {
-            unsigned long long avg = S->metrics.ns_in_safety_total / S->metrics.banker_safety_calls;
-            printf(", avg_safety_ns=%llu", (unsigned long long)avg);
-        }
-        puts("");
-    } else {
-        printf("  deadlocks_found=%llu, time_to_first_deadlock=%llu\n",
-               (unsigned long long)S->metrics.deadlocks_found,
-               (unsigned long long)S->metrics.time_to_first_deadlock);
-    }
-}
-
-/* ------- CENÁRIOS ------- */
+/* loaders (iguais aos que você já usou) */
 static void load_tiny(System *S) {
     static ReqList r0, r1;
     reqlist_init(&r0); reqlist_init(&r1);
@@ -49,24 +21,19 @@ static void load_tiny(System *S) {
     (void)reqlist_push(&r1, req1a, S->m);
 
     int A[MAX_R] = {3,3};
+    /* Max alinhado com claim (alloc+script) p/ BANKER não bloquear à toa */
     int Maxs[MAX_P][MAX_R] = { {3,2}, {2,2} };
     int Alls[MAX_P][MAX_R] = { {0,1}, {2,0} };
     struct ReqList *Scripts[MAX_P] = { &r0, &r1 };
     sys_load_from_arrays(S, A, Maxs, Alls, Scripts);
 }
-
 static void load_deadlock(System *S) {
-    /* Clássico: deve deadlock no Ostrich, evitar no Banker */
     static ReqList r0, r1;
     reqlist_init(&r0); reqlist_init(&r1);
-    int p0a[MAX_R] = {1,0}; /* depois ficará precisando (0,1) */
-    int p0b[MAX_R] = {0,1};
-    int p1a[MAX_R] = {0,1}; /* depois ficará precisando (1,0) */
-    int p1b[MAX_R] = {1,0};
+    int p0a[MAX_R] = {0,1};
+    int p1a[MAX_R] = {1,0};
     (void)reqlist_push(&r0, p0a, S->m);
-    (void)reqlist_push(&r0, p0b, S->m);
     (void)reqlist_push(&r1, p1a, S->m);
-    (void)reqlist_push(&r1, p1b, S->m);
 
     int A[MAX_R] = {0,0};
     int Maxs[MAX_P][MAX_R] = { {1,1}, {1,1} };
@@ -75,34 +42,100 @@ static void load_deadlock(System *S) {
     sys_load_from_arrays(S, A, Maxs, Alls, Scripts);
 }
 
-/* ------- Runner genérico ------- */
-typedef void (*LoaderFn)(System*);
-static void run_scenario(const char *name, Mode mode, LoaderFn loader) {
-    System S;
-    sim_init(&S, 2, 2, mode);
-    loader(&S);
-
-    printf("\n=== RUN %s | mode=%s ===\n", name, mode_str(mode));
-    print_vec("Available(start)", S.Available, S.m);
-
-    sim_run(&S);
-
-    printf("invariants pós-run: %s\n", sys_invariants_ok(&S) ? "OK" : "FAIL");
-    print_metrics(&S);
-
-    print_vec("Available(final)", S.Available, S.m);
-    for (int i = 0; i < S.n; ++i) print_proc(&S, &S.procs[i]);
-
-    sim_finalize(&S);
+static const char *mode_names[] = { "ostrich", "banker", NULL };
+static int mode_from_str(const char *s) {
+    if (!s) return MODE_OSTRICH;
+    if (strcmp(s, "banker") == 0)  return MODE_BANKER;
+    if (strcmp(s, "ostrich") == 0) return MODE_OSTRICH;
+    return MODE_OSTRICH;
 }
 
-int main(void) {
-    /* TINY: deve terminar nos dois modos */
-    run_scenario("TINY", MODE_OSTRICH, load_tiny);
-    run_scenario("TINY", MODE_BANKER,  load_tiny);
+static void usage(const char *prog) {
+    fprintf(stderr,
+        "Uso: %s [--mode ostrich|banker] [--scenario tiny|deadlock]\n"
+        "          [--log eventos.csv] [--metrics resumo.json]\n",
+        prog);
+}
 
-    /* DEADLOCK: Ostrich deve detectar deadlock; Banker deve evitar (bloquear) */
-    run_scenario("DEADLOCK", MODE_OSTRICH, load_deadlock);
-    run_scenario("DEADLOCK", MODE_BANKER,  load_deadlock);
+int main(int argc, char **argv) {
+    const char *scenario = "tiny";
+    const char *mode_s   = "ostrich";
+    const char *csv_path = NULL;
+    const char *json_path= NULL;
+
+    static struct option opts[] = {
+        {"mode",     required_argument, 0, 'm'},
+        {"scenario", required_argument, 0, 's'},
+        {"log",      required_argument, 0, 'l'},
+        {"metrics",  required_argument, 0, 'j'},
+        {"help",     no_argument,       0, 'h'},
+        {0,0,0,0}
+    };
+    int c, idx=0;
+    while ((c = getopt_long(argc, argv, "m:s:l:j:h", opts, &idx)) != -1) {
+        switch (c) {
+            case 'm': mode_s = optarg; break;
+            case 's': scenario = optarg; break;
+            case 'l': csv_path = optarg; break;
+            case 'j': json_path = optarg; break;
+            case 'h': default: usage(argv[0]); return (c=='h'?0:1);
+        }
+    }
+
+    Mode mode = (Mode)mode_from_str(mode_s);
+
+    System S;
+    sim_init(&S, 2, 2, mode);
+
+    /* escolhe cenário */
+    if (strcmp(scenario, "tiny") == 0) {
+        load_tiny(&S);
+    } else if (strcmp(scenario, "deadlock") == 0) {
+        load_deadlock(&S);
+    } else {
+        fprintf(stderr, "Cenário desconhecido: %s\n", scenario);
+        return 2;
+    }
+
+    /* abre log CSV (se pedido) */
+    if (csv_path) {
+        if (!logger_open_csv(csv_path, S.m)) {
+            fprintf(stderr, "Falha ao abrir CSV: %s\n", csv_path);
+        }
+    }
+
+    /* roda simulação */
+    sim_run(&S);
+
+    /* escreve métricas (se pedido) */
+    if (json_path) {
+        if (!metrics_write_json(&S, json_path)) {
+            fprintf(stderr, "Falha ao escrever JSON: %s\n", json_path);
+        }
+    }
+
+    /* fecha log */
+    logger_close_csv();
+
+    /* imprime resumo no stdout */
+    printf("mode=%s scenario=%s | total=%llu grants=%llu blocks=%llu",
+           (mode==MODE_BANKER?"BANKER":"OSTRICH"), scenario,
+           (unsigned long long)S.metrics.total_requests,
+           (unsigned long long)S.metrics.grants,
+           (unsigned long long)S.metrics.blocks);
+    if (mode == MODE_BANKER) {
+        unsigned long long calls = S.metrics.banker_safety_calls;
+        unsigned long long ns    = S.metrics.ns_in_safety_total;
+        printf(" | safety_calls=%llu ns_total=%llu",
+               (unsigned long long)calls, (unsigned long long)ns);
+        if (calls) printf(" avg_ns=%llu", (unsigned long long)(ns/calls));
+    } else {
+        printf(" | deadlocks=%llu t_first=%llu",
+               (unsigned long long)S.metrics.deadlocks_found,
+               (unsigned long long)S.metrics.time_to_first_deadlock);
+    }
+    puts("");
+
+    sim_finalize(&S);
     return 0;
 }
