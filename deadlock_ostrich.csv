@@ -1,7 +1,0 @@
-clock,pid,mode,granted,req0,req1,avail0,avail1
-0,0,OSTRICH,0,0,1,0,0
-0,1,OSTRICH,0,1,0,0,0
-0,0,OSTRICH,0,0,1,0,0
-0,1,OSTRICH,0,1,0,0,0
-1,0,OSTRICH,0,0,1,0,0
-1,1,OSTRICH,0,1,0,0,0

@@ -27,6 +27,91 @@ static void load_tiny(System *S) {
     struct ReqList *Scripts[MAX_P] = { &r0, &r1 };
     sys_load_from_arrays(S, A, Maxs, Alls, Scripts);
 }
+
+/* ----------------- CENÁRIO MÉDIO (n=6, m=3) -----------------
+   Ideia: há recursos suficientes para progresso, mas não para
+   tudo “de uma vez”. O BANKER concede alguns pedidos e bloqueia
+   outros até liberar recursos, rodando safety várias vezes.
+
+   Regras: Max = Allocation_inicial + soma(das reqs do script)
+   para manter a semântica do Banqueiro.
+---------------------------------------------------------------- */
+static void load_medium(System *S) {
+    /* n e m esperados: 6 processos, 3 recursos */
+    if (S->n != 6 || S->m != 3) {
+        fprintf(stderr, "[load_medium] esperado n=6 m=3; recebi n=%d m=%d\n", S->n, S->m);
+    }
+
+    static ReqList r[6];
+    for (int i = 0; i < 6; ++i) reqlist_init(&r[i]);
+
+    /* Available inicial (ajustado para criar contenção moderada) */
+    int A[MAX_R] = {2, 2, 1};
+
+    /* Zere tudo e preencha só 6x3 */
+    int Maxs[MAX_P][MAX_R] = {0};
+    int Alls[MAX_P][MAX_R] = {0};
+
+    /* ----- P0 ----- */
+    Alls[0][0] = 1; Alls[0][1] = 0; Alls[0][2] = 0;
+    int p0a[MAX_R] = {1,0,1};
+    int p0b[MAX_R] = {0,1,0};
+    (void)reqlist_push(&r[0], p0a, S->m);
+    (void)reqlist_push(&r[0], p0b, S->m);
+    /* Max = Alloc + sum(script) = [1,0,0] + [1,0,1] + [0,1,0] = [2,1,1] */
+    Maxs[0][0]=2; Maxs[0][1]=1; Maxs[0][2]=1;
+
+    /* ----- P1 ----- */
+    Alls[1][0] = 0; Alls[1][1] = 1; Alls[1][2] = 0;
+    int p1a[MAX_R] = {1,0,0};
+    int p1b[MAX_R] = {0,0,1};
+    (void)reqlist_push(&r[1], p1a, S->m);
+    (void)reqlist_push(&r[1], p1b, S->m);
+    /* Max = [0,1,0] + [1,0,0] + [0,0,1] = [1,1,1] */
+    Maxs[1][0]=1; Maxs[1][1]=1; Maxs[1][2]=1;
+
+    /* ----- P2 ----- */
+    Alls[2][0] = 0; Alls[2][1] = 0; Alls[2][2] = 1;
+    int p2a[MAX_R] = {1,1,0};
+    (void)reqlist_push(&r[2], p2a, S->m);
+    /* Max = [0,0,1] + [1,1,0] = [1,1,1] */
+    Maxs[2][0]=1; Maxs[2][1]=1; Maxs[2][2]=1;
+
+    /* ----- P3 ----- */
+    Alls[3][0] = 1; Alls[3][1] = 0; Alls[3][2] = 1;
+    int p3a[MAX_R] = {0,1,0};
+    int p3b[MAX_R] = {0,0,1};
+    (void)reqlist_push(&r[3], p3a, S->m);
+    (void)reqlist_push(&r[3], p3b, S->m);
+    /* Max = [1,0,1] + [0,1,0] + [0,0,1] = [1,1,2] */
+    Maxs[3][0]=1; Maxs[3][1]=1; Maxs[3][2]=2;
+
+    /* ----- P4 ----- */
+    Alls[4][0] = 0; Alls[4][1] = 1; Alls[4][2] = 1;
+    int p4a[MAX_R] = {1,0,0};
+    (void)reqlist_push(&r[4], p4a, S->m);
+    /* Max = [0,1,1] + [1,0,0] = [1,1,1] */
+    Maxs[4][0]=1; Maxs[4][1]=1; Maxs[4][2]=1;
+
+    /* ----- P5 ----- */
+    Alls[5][0] = 0; Alls[5][1] = 0; Alls[5][2] = 0;
+    int p5a[MAX_R] = {1,0,0};
+    int p5b[MAX_R] = {0,1,0};
+    int p5c[MAX_R] = {0,0,1};
+    (void)reqlist_push(&r[5], p5a, S->m);
+    (void)reqlist_push(&r[5], p5b, S->m);
+    (void)reqlist_push(&r[5], p5c, S->m);
+    /* Max = [0,0,0] + [1,0,0]+[0,1,0]+[0,0,1] = [1,1,1] */
+    Maxs[5][0]=1; Maxs[5][1]=1; Maxs[5][2]=1;
+
+    struct ReqList *Scripts[MAX_P] = {
+        &r[0], &r[1], &r[2], &r[3], &r[4], &r[5]
+    };
+
+    sys_load_from_arrays(S, A, Maxs, Alls, Scripts);
+}
+
+
 static void load_deadlock(System *S) {
     static ReqList r0, r1;
     reqlist_init(&r0); reqlist_init(&r1);
@@ -52,9 +137,8 @@ static int mode_from_str(const char *s) {
 
 static void usage(const char *prog) {
     fprintf(stderr,
-        "Uso: %s [--mode ostrich|banker] [--scenario tiny|deadlock]\n"
-        "          [--log eventos.csv] [--metrics resumo.json]\n",
-        prog);
+    "Uso: %s [--mode ostrich|banker] [--scenario tiny|deadlock|medium]\n"
+    "          [--log eventos.csv] [--metrics resumo.json]\n", prog);
 }
 
 int main(int argc, char **argv) {
@@ -84,17 +168,28 @@ int main(int argc, char **argv) {
 
     Mode mode = (Mode)mode_from_str(mode_s);
 
-    System S;
-    sim_init(&S, 2, 2, mode);
+    int n = 2, m = 2;
+    if (strcmp(scenario, "tiny") == 0) {
+        n = 2; m = 2;
+    } else if (strcmp(scenario, "deadlock") == 0) {
+        n = 2; m = 2;
+    } else if (strcmp(scenario, "medium") == 0) {
+        n = 6; m = 3;
+    } else {
+        fprintf(stderr, "Cenário desconhecido: %s\n", scenario);
+        return 2;
+    }
 
-    /* escolhe cenário */
+    System S;
+    sim_init(&S, n, m, mode);
+
+    /* escolhe loader */
     if (strcmp(scenario, "tiny") == 0) {
         load_tiny(&S);
     } else if (strcmp(scenario, "deadlock") == 0) {
         load_deadlock(&S);
-    } else {
-        fprintf(stderr, "Cenário desconhecido: %s\n", scenario);
-        return 2;
+    } else { /* medium */
+        load_medium(&S);
     }
 
     /* abre log CSV (se pedido) */

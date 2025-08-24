@@ -9,6 +9,8 @@ mkdir -p "$OUT"
 combos=(
   "ostrich tiny"
   "banker  tiny"
+  "ostrich medium"
+  "banker  medium"
   "ostrich deadlock"
   "banker  deadlock"
 )

@@ -1,5 +1,7 @@
 mode	scenario	total	grants	blocks	safety_calls	ns_total	avg_ns	deadlocks	t_first
 OSTRICH	tiny	3	3	0	0	0	0	0	0
-BANKER	tiny	3	3	0	3	300	100	0	0
+BANKER	tiny	3	3	0	3	400	133	0	0
+OSTRICH	medium	16	10	6	0	0	0	0	0
+BANKER	medium	24	3	21	6	700	116	0	0
 OSTRICH	deadlock	6	0	6	0	0	0	1	2
 BANKER	deadlock	6	0	6	0	0		0	0
