@@ -1,104 +1,108 @@
 /* ---------------------------------------------------------------------
- * src/main.c
- * Teste integrado: System + ReqList + sys_load_from_arrays + sim_step.
+ * src/main.c — Comparação Ostrich vs Banker (TINY e DEADLOCK)
  * --------------------------------------------------------------------- */
 #include <stdio.h>
 #include "simulator.h"
-#include "process.h"   /* ReqList, reqlist_* e Process */
+#include "process.h"
+#include "banker.h"
 
-/* sim_step_handle_process foi definido em simulator.c; declara aqui para usar */
-extern bool sim_step_handle_process(System *S, Process *p);
-
-static const char* mode_str(Mode m) {
-    return (m == MODE_BANKER) ? "BANKER" : "OSTRICH";
-}
-static const char* pstate_str(PState s) {
-    switch (s) {
-        case P_NEW: return "NEW";
-        case P_READY: return "READY";
-        case P_RUNNING: return "RUNNING";
-        case P_BLOCKED: return "BLOCKED";
-        case P_FINISHED: return "FINISHED";
-        default: return "?";
-    }
-}
+static const char* mode_str(Mode m) { return m==MODE_BANKER ? "BANKER" : "OSTRICH"; }
 static void print_vec(const char *label, const int *v, int m) {
-    printf("%s=[", label);
-    for (int j = 0; j < m; ++j) {
-        printf("%d%s", v[j], (j+1<m)?",":"");
-    }
-    printf("]\n");
+    printf("%s=[", label); for (int j=0;j<m;++j) printf("%d%s", v[j], (j+1<m)?",":""); puts("]");
 }
 static void print_proc(const System *S, const Process *p) {
-    printf("P%d state=%s\n", p->id, pstate_str(p->state));
+    printf("P%d state=FINISHED? %s\n", p->id, (p->state==P_FINISHED?"yes":"no"));
     print_vec("  Max       ", p->Max, S->m);
     print_vec("  Allocation", p->Allocation, S->m);
     print_vec("  Need      ", p->Need, S->m);
 }
-
-int main(void) {
-    /* 1) Inicializa o sistema: 2 processos, 2 recursos, modo OSTRICH */
-    System S;
-    sim_init(&S, 2, 2, MODE_OSTRICH);
-    printf("[init] n=%d m=%d mode=%s clock=%llu\n",
-           S.n, S.m, mode_str(S.mode), (unsigned long long)S.sim_clock);
-
-    /* 2) Cria ReqList para cada processo e adiciona requisições */
-    ReqList r0, r1;
-    reqlist_init(&r0);
-    reqlist_init(&r1);
-
-    /* m = S.m; preenche só até m-1; o resto fica zero */
-    int req0a[MAX_R] = {1, 0};   /* P0 pede 1 do R0 */
-    int req0b[MAX_R] = {2, 1};   /* depois 2 do R0 e 1 do R1 */
-    int req1a[MAX_R] = {0, 2};   /* P1 pede 2 do R1 */
-
-    (void)reqlist_push(&r0, req0a, S.m);
-    (void)reqlist_push(&r0, req0b, S.m);
-    (void)reqlist_push(&r1, req1a, S.m);
-
-    /* 3) Define um cenário tiny em memória */
-    int A[MAX_R] = {3, 3}; /* Available inicial */
-
-    int Maxs[MAX_P][MAX_R] = {0};
-    int Alls[MAX_P][MAX_R] = {0};
-    /* P0 */
-    Maxs[0][0] = 7; Maxs[0][1] = 5;
-    Alls[0][0] = 0; Alls[0][1] = 1;
-    /* P1 */
-    Maxs[1][0] = 3; Maxs[1][1] = 2;
-    Alls[1][0] = 2; Alls[1][1] = 0;
-
-    struct ReqList *Scripts[MAX_P] = { &r0, &r1 };
-
-    /* 4) Carrega no sistema e checa invariantes */
-    sys_load_from_arrays(&S, A, Maxs, Alls, Scripts);
-
-
-
-    puts("\n=== ESTADO APÓS LOAD ===");
-    print_vec("Available", S.Available, S.m);
-    for (int i = 0; i < S.n; ++i) {
-        print_proc(&S, &S.procs[i]);
-        printf("  reqlist_count=%d empty=%s\n",
-               reqlist_count(S.procs[i].script),
-               reqlist_empty(S.procs[i].script) ? "yes" : "no");
+static void print_metrics(const System *S) {
+    printf("  total_requests=%llu, grants=%llu, blocks=%llu\n",
+           (unsigned long long)S->metrics.total_requests,
+           (unsigned long long)S->metrics.grants,
+           (unsigned long long)S->metrics.blocks);
+    if (S->mode == MODE_BANKER) {
+        printf("  banker_safety_calls=%llu, ns_in_safety_total=%llu",
+               (unsigned long long)S->metrics.banker_safety_calls,
+               (unsigned long long)S->metrics.ns_in_safety_total);
+        if (S->metrics.banker_safety_calls) {
+            unsigned long long avg = S->metrics.ns_in_safety_total / S->metrics.banker_safety_calls;
+            printf(", avg_safety_ns=%llu", (unsigned long long)avg);
+        }
+        puts("");
+    } else {
+        printf("  deadlocks_found=%llu, time_to_first_deadlock=%llu\n",
+               (unsigned long long)S->metrics.deadlocks_found,
+               (unsigned long long)S->metrics.time_to_first_deadlock);
     }
+}
 
-    printf("\ninvariants: %s\n", sys_invariants_ok(&S) ? "OK" : "FAIL");
+/* ------- CENÁRIOS ------- */
+static void load_tiny(System *S) {
+    static ReqList r0, r1;
+    reqlist_init(&r0); reqlist_init(&r1);
+    int req0a[MAX_R] = {1,0};
+    int req0b[MAX_R] = {2,1};
+    int req1a[MAX_R] = {0,2};
+    (void)reqlist_push(&r0, req0a, S->m);
+    (void)reqlist_push(&r0, req0b, S->m);
+    (void)reqlist_push(&r1, req1a, S->m);
 
-    /* 5) Executa alguns “passos” (com o stub atual, deve bloquear) */
+    int A[MAX_R] = {3,3};
+    int Maxs[MAX_P][MAX_R] = { {3,2}, {2,2} };
+    int Alls[MAX_P][MAX_R] = { {0,1}, {2,0} };
+    struct ReqList *Scripts[MAX_P] = { &r0, &r1 };
+    sys_load_from_arrays(S, A, Maxs, Alls, Scripts);
+}
 
-    printf("\n=== RODANDO sim_run ===\n");
+static void load_deadlock(System *S) {
+    /* Clássico: deve deadlock no Ostrich, evitar no Banker */
+    static ReqList r0, r1;
+    reqlist_init(&r0); reqlist_init(&r1);
+    int p0a[MAX_R] = {1,0}; /* depois ficará precisando (0,1) */
+    int p0b[MAX_R] = {0,1};
+    int p1a[MAX_R] = {0,1}; /* depois ficará precisando (1,0) */
+    int p1b[MAX_R] = {1,0};
+    (void)reqlist_push(&r0, p0a, S->m);
+    (void)reqlist_push(&r0, p0b, S->m);
+    (void)reqlist_push(&r1, p1a, S->m);
+    (void)reqlist_push(&r1, p1b, S->m);
+
+    int A[MAX_R] = {0,0};
+    int Maxs[MAX_P][MAX_R] = { {1,1}, {1,1} };
+    int Alls[MAX_P][MAX_R] = { {1,0}, {0,1} };
+    struct ReqList *Scripts[MAX_P] = { &r0, &r1 };
+    sys_load_from_arrays(S, A, Maxs, Alls, Scripts);
+}
+
+/* ------- Runner genérico ------- */
+typedef void (*LoaderFn)(System*);
+static void run_scenario(const char *name, Mode mode, LoaderFn loader) {
+    System S;
+    sim_init(&S, 2, 2, mode);
+    loader(&S);
+
+    printf("\n=== RUN %s | mode=%s ===\n", name, mode_str(mode));
+    print_vec("Available(start)", S.Available, S.m);
+
     sim_run(&S);
 
-    puts("\n=== ESTADO FINAL (após passos) ===");
-    for (int i = 0; i < S.n; ++i) {
-        print_proc(&S, &S.procs[i]);
-    }
+    printf("invariants pós-run: %s\n", sys_invariants_ok(&S) ? "OK" : "FAIL");
+    print_metrics(&S);
 
-    /* 6) Finaliza */
+    print_vec("Available(final)", S.Available, S.m);
+    for (int i = 0; i < S.n; ++i) print_proc(&S, &S.procs[i]);
+
     sim_finalize(&S);
-    puts("\n[finalize] ok");
+}
+
+int main(void) {
+    /* TINY: deve terminar nos dois modos */
+    run_scenario("TINY", MODE_OSTRICH, load_tiny);
+    run_scenario("TINY", MODE_BANKER,  load_tiny);
+
+    /* DEADLOCK: Ostrich deve detectar deadlock; Banker deve evitar (bloquear) */
+    run_scenario("DEADLOCK", MODE_OSTRICH, load_deadlock);
+    run_scenario("DEADLOCK", MODE_BANKER,  load_deadlock);
     return 0;
 }

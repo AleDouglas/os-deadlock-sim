@@ -5,6 +5,7 @@
 #include <assert.h>
 #include "simulator.h"
 #include "process.h"
+#include "detector.h"
 
 /*
  * sim_init
@@ -165,6 +166,7 @@ void release_all_resources(System *S, Process *P) {
         S->Available[j] += P->Allocation[j];
         P->Allocation[j] = 0;
         P->Need[j]       = 0;   /* ou: recompute depois com proc_compute_need(P) */
+        P->Max[j]        = 0;
     }
 }
 
@@ -319,6 +321,20 @@ void sim_run(System *S) {
         S->sim_clock += 1;
 
         /* 4) Se não houve progresso na rodada, paramos (evita loop infinito) */
-        if (!progress) break;
+        if (!progress) {
+            if (S->mode == MODE_OSTRICH) {
+                bool has_blocked = false;
+                for (int i = 0; i < S->n; ++i) {
+                    if (S->procs[i].state == P_BLOCKED) { has_blocked = true; break; }
+                }
+                if (has_blocked && detect_deadlock(S)) {
+                    S->metrics.deadlocks_found += 1;
+                    if (S->metrics.time_to_first_deadlock == 0) {
+                        S->metrics.time_to_first_deadlock = S->sim_clock;
+                    }
+                }
+            }
+            break; /* evita loop infinito */
+        }
     }
 }
