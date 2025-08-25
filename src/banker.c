@@ -11,20 +11,12 @@ static inline bool vec_leq_need(const int need[MAX_R], const int work[MAX_R], in
 
 bool safety_check(const System *S) {
     if (!S) return false;
-
-    int  m = S->m, n = S->n;
-    int  Work[MAX_R];
+    int m = S->m, n = S->n;
+    int Work[MAX_R];
     bool Finish[MAX_P];
 
-    /* Work = Available */
     for (int j = 0; j < m; ++j) Work[j] = S->Available[j];
-
-    /* Finish[i] = (Need[i] == 0?) */
-    for (int i = 0; i < n; ++i) {
-        bool zero = true;
-        for (int j = 0; j < m; ++j) if (S->procs[i].Need[j] != 0) { zero = false; break; }
-        Finish[i] = zero;
-    }
+    for (int i = 0; i < n; ++i) Finish[i] = false;
 
     bool progress = true;
     while (progress) {
@@ -32,18 +24,16 @@ bool safety_check(const System *S) {
         for (int i = 0; i < n; ++i) {
             if (Finish[i]) continue;
             if (vec_leq_need(S->procs[i].Need, Work, m)) {
-                /* Work += Allocation[i] */
                 for (int j = 0; j < m; ++j) Work[j] += S->procs[i].Allocation[j];
                 Finish[i] = true;
                 progress = true;
             }
         }
     }
-
-    /* Seguro se todos podem terminar */
     for (int i = 0; i < n; ++i) if (!Finish[i]) return false;
     return true;
 }
+
 
 bool request_banker(System *S, Process *P, const int req[MAX_R]) {
     if (!S || !P || !req) return false;

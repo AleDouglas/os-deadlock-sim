@@ -6,7 +6,7 @@
   "grants": 3,
   "blocks": 21,
   "banker_safety_calls": 6,
-  "ns_in_safety_total": 800,
+  "ns_in_safety_total": 1100,
   "deadlocks_found": 0,
   "time_to_first_deadlock": 0
 }
