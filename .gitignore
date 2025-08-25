@@ -4,3 +4,7 @@
 # Arquivos de dados
 *.[Cc][Ss][Vv]
 *.[Jj][Ss][Oo][Nn]
+
+./out
+out
+out/

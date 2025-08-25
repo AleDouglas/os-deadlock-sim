@@ -29,6 +29,7 @@ Se algo fugir muito do esperado, cheque:
 ### Usando experiments.sh para gerar tabela
 
 ```
+make
 chmod +x experiments.sh
 ./experiments.sh
 column -t -s$'\t' out/summary.tsv
