@@ -2,11 +2,11 @@
   "mode": "BANKER",
   "n": 6,
   "m": 3,
-  "total_requests": 24,
-  "grants": 3,
-  "blocks": 21,
-  "banker_safety_calls": 6,
-  "ns_in_safety_total": 1100,
+  "total_requests": 16,
+  "grants": 10,
+  "blocks": 6,
+  "banker_safety_calls": 10,
+  "ns_in_safety_total": 900,
   "deadlocks_found": 0,
   "time_to_first_deadlock": 0
 }

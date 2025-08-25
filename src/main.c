@@ -127,7 +127,7 @@ static void load_deadlock(System *S) {
     sys_load_from_arrays(S, A, Maxs, Alls, Scripts);
 }
 
-static const char *mode_names[] = { "ostrich", "banker", NULL };
+//static const char *mode_names[] = { "ostrich", "banker", NULL };
 static int mode_from_str(const char *s) {
     if (!s) return MODE_OSTRICH;
     if (strcmp(s, "banker") == 0)  return MODE_BANKER;
