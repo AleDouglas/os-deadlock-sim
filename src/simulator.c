@@ -172,9 +172,9 @@ void release_all_resources(System *S, Process *P) {
 
 bool handle_request_current_mode(System *S, Process *P, const int req[MAX_R]);
 void release_all_resources(System *S, Process *P);
-void enqueue_ready(int pid);
-void enqueue_blocked(int pid);
-int  blocked_count(void);
+//void enqueue_ready(int pid);
+//void enqueue_blocked(int pid);
+//int  blocked_count(void);
 
 /*
  * Processa um processo por um "passo" de simulação.
@@ -214,13 +214,13 @@ bool sim_step_handle_process(System *S, Process *p) {
 
         /* 4c) Ainda tem requisições → volta para READY */
         p->state = P_READY;
-        enqueue_ready(p->id);
+        //enqueue_ready(p->id);
         return false;
     } else {
         /* 4d) Não concedido → vai para BLOCKED */
         p->state = P_BLOCKED;
-        enqueue_blocked(p->id);
-        (void)blocked_count();  /* útil para métricas/log, se quiser */
+        //enqueue_blocked(p->id);
+        //(void)blocked_count();  /* útil para métricas/log, se quiser */
         return false;
     }
 }
